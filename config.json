@@ -2,7 +2,8 @@
     "global": {
         "datafile": "data",
         "res_file": "res.txt",
-        "res_data": "res_data"
+        "res_data": "res_data",
+        "command": "encrypt"
     },
     "params": {
         "serial": "dsadsa",

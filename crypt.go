@@ -16,12 +16,9 @@ const (
 	PATH_TO_RESDATAFILE string = "resdata"
 )
 
-// type Send_message interface {
-
-// }
 
 type GlobalParams struct {
-	datafile, res_file, res_data string
+	datafile, res_file, res_data, command string
 }
 
 type SendParams struct {
@@ -37,22 +34,31 @@ type SendMessage struct {
 	header, body, footer string
 }
 
-type Message struct {
-    Name string
-    Food string
+type Command struct {
+	message string
 }
 
-func encrypt(data, pathToCert, serial, password string) SendMessage {
+func (c *Command) encrypt(filename, pathToCert, serial, password string) {
 	var mes SendMessage
+	encData := c.getEncodedData(filename)
 
-	mes.header = fmt.Sprintf("<xml><data>%s</data>%s, %s, %s</xml>", data, pathToCert, serial, password)
+	mes.header = fmt.Sprintf("<xml><data>%s</data>%s, %s, %s</xml>", encData, pathToCert, serial, password)
 	mes.footer = "</data></req>"
 
-	return mes
+	c.message =  fmt.Sprintf("%v", mes)
 
 }
 
-func parseConfig(filename string, conf *ConfigSt) {
+func (c *Command) getEncodedData(filename string) string  {
+	data, err := ioutil.ReadFile(filename)
+	if err != nil {
+		panic(err)
+	}
+	return base64.StdEncoding.EncodeToString([]byte(data))
+
+}
+
+func (conf *ConfigSt) parseConfig(filename string) {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		fmt.Println("Can't open from file: ", filename)
@@ -74,6 +80,8 @@ func parseConfig(filename string, conf *ConfigSt) {
 							conf.globParams.res_file = innVal.(string)
 						case "res_data":
 							conf.globParams.res_data = innVal.(string)
+						case "command":
+							conf.globParams.command = innVal.(string)
 						default:
 							panic("Wrong xml at parameter!")
 					}
@@ -102,67 +110,16 @@ func parseConfig(filename string, conf *ConfigSt) {
 func main() {
 
 	var conf ConfigSt
-	parseConfig(PATH_TO_JSONCONFIG, &conf)
-	fmt.Println("Filepath: ",conf.sndParams.serial)
+	var comm Command
+	conf.parseConfig(PATH_TO_JSONCONFIG)
+	switch conf.globParams.command {
+		case "encrypt":
+			comm.encrypt(conf.globParams.datafile, conf.sndParams.pathToCert, conf.sndParams.serial, conf.sndParams.password)
+			fmt.Println(comm.message)
+		default:
+			panic("Wrong XML structure")
+	}
+	
 
 	return 
-	b := [] byte(`{
-    "global": {
-        "datafile": "data",
-        "res_file": "res.txt",
-        "res_data": "res_data"
-    },
-    "params": {
-        "serial": "dsadsa",
-        "path_to_cert": "/home/espadon",
-        "password": "123"
-    }
-}`)
-
-	// var conf ConfigSt
-	var  f interface {}
-	err := json.Unmarshal(b, &f)
-	mss := f.(map[string]interface{})
-	// err := json.Unmarshal(b, &conf)
-	for k, v := range mss {
-		fmt.Println(k, v)
-		
-		switch vv := v.(type) {
-			case string:
-				fmt.Println(k, " is string ", v, vv)
-			case []interface{}:
-				for k_i, v_i := range vv {
-					fmt.Println(k_i, v_i)
-				}
-			default:
-				var vss = v.(map[string]interface{})
-				for k_i, v_i := range vss {
-					fmt.Println(k_i, v_i)
-				}
-		}
-	}
-
-	b1 := []byte(`{"Name":"Bob","Food":"Pickle"}`)
-	var m Message
-	err1 := json.Unmarshal(b1, &m)
-	if err1 != nil {
-		fmt.Println(err1)
-	}
-	fmt.Println(m)
-
-
-	
-	// text := "4qd223"
-	data, err := ioutil.ReadFile(PATH_TO_DATAFILE)
-	if err != nil {
-		panic(err)
-	}
-	
-
-	encData := base64.StdEncoding.EncodeToString([]byte(string(data)))
-	fmt.Println(encrypt(encData, "/home/espadon", "sf34223f", "123"))
-
-
-	// data, err := base64.StdEncoding.DecodeString(str)
-
 }
