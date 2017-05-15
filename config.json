@@ -1,0 +1,12 @@
+{
+    "global": {
+        "datafile": "data",
+        "res_file": "res.txt",
+        "res_data": "res_data"
+    },
+    "params": {
+        "serial": "dsadsa",
+        "path_to_cert": "/home/espadon",
+        "password": "123"
+    }
+}
