@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"encoding/base64"
 	"io/ioutil"
-	// // "reflect"
-	// // "bufio"
 	"encoding/json"
+    "net/http"
+    "bytes"
+	"encoding/xml"
 )
 
 const (
@@ -30,23 +31,53 @@ type ConfigSt struct {
 	sndParams SendParams
 }
 
-type SendMessage struct {
-	header, body, footer string
-}
-
 type Command struct {
 	message string
+    datafile string
+    response string
+    conf ConfigSt
 }
 
-func (c *Command) encrypt(filename, pathToCert, serial, password string) {
-	var mes SendMessage
-	encData := c.getEncodedData(filename)
+func (c *Command) encrypt() {
+	encData := c.getEncodedData(c.conf.globParams.datafile)
+    crtData, err := ioutil.ReadFile(c.conf.sndParams.pathToCert)
+    if err != nil {
+		fmt.Println("Can't open cert file: ", c.conf.sndParams.pathToCert)
+        panic(err)
+	} 
+    encCert := base64.StdEncoding.EncodeToString([]byte(crtData))
+    encPassword := base64.StdEncoding.EncodeToString([]byte(c.conf.sndParams.password))
 
-	mes.header = fmt.Sprintf("<xml><data>%s</data>%s, %s, %s</xml>", encData, pathToCert, serial, password)
-	mes.footer = "</data></req>"
+	c.message = fmt.Sprintf(`<xml>%s %s %s %s</xml>`, encCert, c.conf.sndParams.serial, encPassword, encData)
+}
 
-	c.message =  fmt.Sprintf("%v", mes)
+func (c *Command) getSkFiles(typeOfCerts string) {
+    var keyUsage string
+    switch typeOfCerts {
+        case "forcrypt":
+            keyUsage = "56"
+        case "forsign":
+            keyUsage = "192"
+        default:
+            panic("Wrong params typeOfCerts!")
+    }
 
+    encPassword := base64.StdEncoding.EncodeToString([]byte(c.conf.sndParams.password))
+    c.message = fmt.Sprintf(`<xml>%s %s</xml>`, encPassword, keyUsage)
+
+}
+
+func (c *Command) setSign() {
+    encData := c.getEncodedData(c.conf.globParams.datafile)
+    encPassword := base64.StdEncoding.EncodeToString([]byte(c.conf.sndParams.password))
+    c.message = fmt.Sprintf(`<xml>%s %s %s</xml>`, c.conf.sndParams.serial, encPassword, encData)
+
+}
+
+func (c *Command) getSigned() {
+    encData := c.getEncodedData(c.conf.globParams.datafile)
+    encPassword := base64.StdEncoding.EncodeToString([]byte(c.conf.sndParams.password))
+    c.message = fmt.Sprintf(`<xml>%s %s</xml>`, c.conf.sndParams.serial, encPassword, encData)
 }
 
 func (c *Command) getEncodedData(filename string) string  {
@@ -55,7 +86,39 @@ func (c *Command) getEncodedData(filename string) string  {
 		panic(err)
 	}
 	return base64.StdEncoding.EncodeToString([]byte(data))
+}
 
+func (c *Command) sendRequest() {
+	fmt.Println("Sending request to Cryptoprovider...")
+    url := "http://127.0.0.1:19744"
+    r, err := http.NewRequest("POST", url, bytes.NewBuffer([]byte(c.message)))
+    r.Header.Set("Content-Type", "text/xml")
+
+    client := &http.Client{}
+    resp, err := client.Do(r)
+    if err != nil {
+        panic(err)
+    }
+    body, _ := ioutil.ReadAll(resp.Body)
+    err = ioutil.WriteFile(c.conf.globParams.res_file, body, 0644)
+}
+
+func (c *Command) parseResponse() {
+	data, err := ioutil.ReadFile(c.conf.globParams.res_file)
+	if err != nil {
+		panic("Can't open response file!")
+	}
+	var res ResposeFromCrypt
+	xml.Unmarshal(data, &res)
+	switch res.Result.Code {
+		case 0:
+			fmt.Println("Code 0. Cryptoprovider successive process request!")
+			strData := base64.StdEncoding.Decode(base64Text, []byte(res.Data))
+			err := ioutil.WriteFile(c.conf.globParams.res_data, strData, 0644)
+			fmt.Println("Data is stored to ", c.conf.globParams.res_data)
+		default:
+			fmt.Println("Code ", res.Result.Code, ". Cryptoprovider failed to process request!")
+	}
 }
 
 func (conf *ConfigSt) parseConfig(filename string) {
@@ -83,7 +146,8 @@ func (conf *ConfigSt) parseConfig(filename string) {
 						case "command":
 							conf.globParams.command = innVal.(string)
 						default:
-							panic("Wrong xml at parameter!")
+							ms := fmt.Sprintf("Wrong parameter in config file! Tag: %s", innKey)
+							panic(ms)
 					}
 				}
 			case "params":
@@ -97,29 +161,49 @@ func (conf *ConfigSt) parseConfig(filename string) {
 						case "password":
 							conf.sndParams.password = innVal.(string)
 						default:
-							panic("Wrong xml at parameter!")
+							ms := fmt.Sprintf("Wrong parameter in config file! Tag: %s", innKey)
+							panic(ms)
 					}
 				}
 			default:
-				panic("Wrong xml at parameter!")
+				ms := fmt.Sprintf("Wrong parameter in config file! Tag: %s", key)
+				panic(ms)
 		}
 	}
 	
 }
 
-func main() {
+type ReturnData struct {
+	XMLName xml.Name `xml:"Return"`
+	Code int `xml:"code"`
+	Message string `xml:"Message"`
+}
 
-	var conf ConfigSt
+type ResposeFromCrypt struct {
+	XMLName xml.Name `xml:"Result"`
+	Data string `xml:"Data"`
+	Ret ReturnData
+}
+
+func main() {
 	var comm Command
-	conf.parseConfig(PATH_TO_JSONCONFIG)
-	switch conf.globParams.command {
+	comm.conf.parseConfig(PATH_TO_JSONCONFIG)
+	switch comm.conf.globParams.command {
 		case "encrypt":
-			comm.encrypt(conf.globParams.datafile, conf.sndParams.pathToCert, conf.sndParams.serial, conf.sndParams.password)
-			fmt.Println(comm.message)
+			comm.encrypt()
+        case "getSkFiles":
+            comm.getSkFiles("forsign")
+        case "setSign":
+            comm.setSign()
+        case "getSigned":
+            comm.getSigned()
 		default:
-			panic("Wrong XML structure")
+			ms := fmt.Sprintf("Wrong command! Command in config: %s. Available commands: encrypt, getSkfilem setSign, getSigned", comm.conf.globParams.command)
+			panic(ms)
 	}
-	
+
+	comm.sendRequest()
+	comm.parseResponse()
 
 	return 
 }
